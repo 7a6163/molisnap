@@ -19,7 +19,9 @@ pub struct Cache {
 impl Cache {
     pub async fn connect(url: &str) -> redis::RedisResult<Self> {
         let client = redis::Client::open(url)?;
-        Ok(Self { conn: ConnectionManager::new(client).await? })
+        Ok(Self {
+            conn: ConnectionManager::new(client).await?,
+        })
     }
 
     pub async fn get(&self, key: &str) -> Option<Page> {

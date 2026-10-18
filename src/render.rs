@@ -29,7 +29,12 @@ const META_STATUS_CHECK: &str = r#"(() => {
 ///
 /// Exit 0 means a 2xx/3xx document. With `--fail-with-body`, an origin status >= 400
 /// exits 22 but still writes the body, and the status is reported on stderr.
-pub async fn render(moli_bin: &str, timeout_ms: u64, url: &str, format: Format) -> Result<Page, String> {
+pub async fn render(
+    moli_bin: &str,
+    timeout_ms: u64,
+    url: &str,
+    format: Format,
+) -> Result<Page, String> {
     let mut cmd = Command::new(moli_bin);
     cmd.args(["fetch", "--dump", format.moli_dump(), "--wait", "done"])
         .args(["--timeout", &timeout_ms.to_string()])
@@ -56,22 +61,37 @@ pub async fn render(moli_bin: &str, timeout_ms: u64, url: &str, format: Format) 
         Some(0) => 200,
         Some(22) => parse_status(&stderr).unwrap_or(502),
         Some(1) if let Some(status) = parse_meta_status(&stderr) => {
-            return Ok(Page { status, body: Default::default(), rendered_at: now_secs() });
+            return Ok(Page {
+                status,
+                body: Default::default(),
+                rendered_at: now_secs(),
+            });
         }
         _ => return Err(format!("moli failed ({}): {}", out.status, stderr.trim())),
     };
-    Ok(Page { status, body: out.stdout.into(), rendered_at: now_secs() })
+    Ok(Page {
+        status,
+        body: out.stdout.into(),
+        rendered_at: now_secs(),
+    })
 }
 
 /// Pulls the status out of e.g. "final main document returned HTTP status 404 at `...`".
 fn parse_status(stderr: &str) -> Option<u16> {
     let i = stderr.find("HTTP status ")?;
-    stderr[i + "HTTP status ".len()..].split_whitespace().next()?.parse().ok()
+    stderr[i + "HTTP status ".len()..]
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
 }
 
 fn parse_meta_status(stderr: &str) -> Option<u16> {
     let i = stderr.find("molisnap-status=")?;
-    let digits: String = stderr[i + "molisnap-status=".len()..].chars().take_while(char::is_ascii_digit).collect();
+    let digits: String = stderr[i + "molisnap-status=".len()..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
     digits.parse().ok()
 }
 

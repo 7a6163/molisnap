@@ -72,8 +72,15 @@ impl Format {
         if let Some(name) = explicit {
             return Self::parse(name).ok_or_else(|| format!("unknown format `{name}`"));
         }
-        let accept = headers.get(header::ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("");
-        Ok(if accept.contains("text/markdown") { Self::Markdown } else { Self::Html })
+        let accept = headers
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        Ok(if accept.contains("text/markdown") {
+            Self::Markdown
+        } else {
+            Self::Html
+        })
     }
 }
 
@@ -85,7 +92,10 @@ pub struct Page {
 }
 
 pub fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 pub struct Config {
@@ -107,7 +117,9 @@ impl Config {
             std::env::var(name).unwrap_or_else(|_| default.to_string())
         }
         fn num<T: std::str::FromStr>(name: &str, default: &str) -> Result<T, String> {
-            var(name, default).parse().map_err(|_| format!("{name} must be a number"))
+            var(name, default)
+                .parse()
+                .map_err(|_| format!("{name} must be a number"))
         }
         let allowed_hosts: Vec<String> = var("ALLOWED_HOSTS", "")
             .split(',')
@@ -115,7 +127,10 @@ impl Config {
             .filter(|h| !h.is_empty())
             .collect();
         if allowed_hosts.is_empty() {
-            return Err("ALLOWED_HOSTS is required (comma-separated, e.g. `example.com,*.example.com`)".into());
+            return Err(
+                "ALLOWED_HOSTS is required (comma-separated, e.g. `example.com,*.example.com`)"
+                    .into(),
+            );
         }
         Ok(Self {
             listen_addr: var("LISTEN_ADDR", "0.0.0.0:3000"),
@@ -130,17 +145,24 @@ impl Config {
     }
 
     fn host_allowed(&self, host: &str) -> bool {
-        self.allowed_hosts.iter().any(|a| match a.strip_prefix("*.") {
-            Some(base) => host.len() > base.len() && host.ends_with(base) && host[..host.len() - base.len()].ends_with('.'),
-            None => host == a,
-        })
+        self.allowed_hosts
+            .iter()
+            .any(|a| match a.strip_prefix("*.") {
+                Some(base) => {
+                    host.len() > base.len()
+                        && host.ends_with(base)
+                        && host[..host.len() - base.len()].ends_with('.')
+                }
+                None => host == a,
+            })
     }
 }
 
 type RenderFuture = Shared<BoxFuture<'static, Result<Page, String>>>;
 
 /// Turns a validated URL into a page. Production uses [`render::moli`]; tests inject fakes.
-pub type Renderer = Arc<dyn Fn(String, Format) -> BoxFuture<'static, Result<Page, String>> + Send + Sync>;
+pub type Renderer =
+    Arc<dyn Fn(String, Format) -> BoxFuture<'static, Result<Page, String>> + Send + Sync>;
 
 pub struct AppState {
     cfg: Config,
@@ -180,7 +202,11 @@ struct RenderParams {
     format: Option<String>,
 }
 
-async fn render_query(State(st): State<St>, headers: HeaderMap, Query(p): Query<RenderParams>) -> Response {
+async fn render_query(
+    State(st): State<St>,
+    headers: HeaderMap,
+    Query(p): Query<RenderParams>,
+) -> Response {
     match Format::select(p.format.as_deref(), &headers) {
         Ok(format) => serve(st, &p.url, format).await,
         Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
@@ -190,7 +216,11 @@ async fn render_query(State(st): State<St>, headers: HeaderMap, Query(p): Query<
 /// The target's own query string belongs to the target, so the format comes from
 /// the `X-Render-Format` or `Accept` header.
 async fn render_path(State(st): State<St>, headers: HeaderMap, uri: Uri) -> Response {
-    let target = uri.path_and_query().map(|p| p.as_str()).unwrap_or("").trim_start_matches('/');
+    let target = uri
+        .path_and_query()
+        .map(|p| p.as_str())
+        .unwrap_or("")
+        .trim_start_matches('/');
     if !(target.starts_with("http://") || target.starts_with("https://")) {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -271,12 +301,19 @@ fn render_once(st: &St, key: String, url: Url, format: Format) -> RenderFuture {
         st2.inflight.lock().unwrap().remove(&key2);
         res
     });
-    let fut = async move { task.await.map_err(|e| format!("render task failed: {e}"))? }.boxed().shared();
+    let fut = async move { task.await.map_err(|e| format!("render task failed: {e}"))? }
+        .boxed()
+        .shared();
     inflight.insert(key, fut.clone());
     fut
 }
 
-async fn render_and_store(st: &AppState, key: &str, url: &str, format: Format) -> Result<Page, String> {
+async fn render_and_store(
+    st: &AppState,
+    key: &str,
+    url: &str,
+    format: Format,
+) -> Result<Page, String> {
     let wait = Duration::from_millis(st.cfg.render_timeout_ms);
     let _permit = tokio::time::timeout(wait, st.renders.acquire())
         .await
@@ -291,7 +328,9 @@ async fn render_and_store(st: &AppState, key: &str, url: &str, format: Format) -
     if let Some(cache) = &st.cache
         && cacheable(page.status)
     {
-        cache.set(key, &page, st.cfg.fresh_secs + st.cfg.stale_secs).await;
+        cache
+            .set(key, &page, st.cfg.fresh_secs + st.cfg.stale_secs)
+            .await;
     }
     Ok(page)
 }
@@ -316,7 +355,10 @@ fn respond(cfg: &Config, page: Page, format: Format, cache: &'static str) -> Res
         status,
         [
             (header::CONTENT_TYPE, format.content_type()),
-            (header::HeaderName::from_static("x-cache"), cache.to_string()),
+            (
+                header::HeaderName::from_static("x-cache"),
+                cache.to_string(),
+            ),
             (header::AGE, age),
             (header::CACHE_CONTROL, cache_control),
         ],
@@ -357,7 +399,12 @@ mod tests {
         let c = cfg(&["example.com"]);
         assert!(validate_url(&c, "http://169.254.169.254/").is_err());
         assert!(validate_url(&c, "file:///etc/passwd").is_err());
-        assert_eq!(validate_url(&c, "https://example.com/a?b=1#x").unwrap().as_str(), "https://example.com/a?b=1");
+        assert_eq!(
+            validate_url(&c, "https://example.com/a?b=1#x")
+                .unwrap()
+                .as_str(),
+            "https://example.com/a?b=1"
+        );
     }
 
     #[test]

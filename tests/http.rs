@@ -34,12 +34,19 @@ struct FakeRenderer {
 
 impl FakeRenderer {
     fn new(status: u16) -> Self {
-        Self { status, delay: Duration::ZERO, calls: Arc::new(AtomicUsize::new(0)) }
+        Self {
+            status,
+            delay: Duration::ZERO,
+            calls: Arc::new(AtomicUsize::new(0)),
+        }
     }
 
     /// Slow renders let concurrent requests overlap.
     fn slow(status: u16) -> Self {
-        Self { delay: Duration::from_millis(100), ..Self::new(status) }
+        Self {
+            delay: Duration::from_millis(100),
+            ..Self::new(status)
+        }
     }
 
     fn calls(&self) -> usize {
@@ -53,7 +60,11 @@ impl FakeRenderer {
             async move {
                 me.calls.fetch_add(1, Ordering::SeqCst);
                 tokio::time::sleep(me.delay).await;
-                Ok(Page { status: me.status, body: format!("rendered {url}").into(), rendered_at: now_secs() })
+                Ok(Page {
+                    status: me.status,
+                    body: format!("rendered {url}").into(),
+                    rendered_at: now_secs(),
+                })
             }
             .boxed()
         })
@@ -61,7 +72,10 @@ impl FakeRenderer {
 }
 
 async fn get(app: &Router, uri: &str) -> Response<Body> {
-    app.clone().oneshot(Request::get(uri).body(Body::empty()).unwrap()).await.unwrap()
+    app.clone()
+        .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -94,7 +108,9 @@ async fn concurrent_requests_for_one_page_share_a_single_render() {
     let fake = FakeRenderer::slow(200);
     let app = app(AppState::new(config(3600, 86400), None, fake.renderer()));
 
-    let responses = futures::future::join_all((0..5).map(|_| get(&app, "/render?url=https://example.com/a"))).await;
+    let responses =
+        futures::future::join_all((0..5).map(|_| get(&app, "/render?url=https://example.com/a")))
+            .await;
 
     assert!(responses.iter().all(|r| r.status() == 200));
     assert_eq!(fake.calls(), 1);
@@ -106,12 +122,19 @@ async fn valkey() -> Option<Cache> {
         eprintln!("skipped: VALKEY_TEST_URL not set");
         return None;
     };
-    Some(Cache::connect(&url).await.expect("connect to VALKEY_TEST_URL"))
+    Some(
+        Cache::connect(&url)
+            .await
+            .expect("connect to VALKEY_TEST_URL"),
+    )
 }
 
 /// A path no earlier run has cached, so tests don't see each other's entries.
 fn fresh_page_uri() -> String {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     format!("/render?url=https://example.com/t/{nanos}")
 }
 
@@ -119,7 +142,11 @@ fn fresh_page_uri() -> String {
 async fn with_valkey_a_repeat_request_is_served_from_cache() {
     let Some(cache) = valkey().await else { return };
     let fake = FakeRenderer::new(200);
-    let app = app(AppState::new(config(3600, 86400), Some(cache), fake.renderer()));
+    let app = app(AppState::new(
+        config(3600, 86400),
+        Some(cache),
+        fake.renderer(),
+    ));
     let uri = fresh_page_uri();
 
     let first = get(&app, &uri).await;
@@ -135,7 +162,11 @@ async fn with_valkey_an_expired_page_is_served_stale_and_refreshed_in_the_backgr
     let Some(cache) = valkey().await else { return };
     let fake = FakeRenderer::new(200);
     // fresh_secs = 0: every cached copy is already past its fresh window.
-    let app = app(AppState::new(config(0, 86400), Some(cache), fake.renderer()));
+    let app = app(AppState::new(
+        config(0, 86400),
+        Some(cache),
+        fake.renderer(),
+    ));
     let uri = fresh_page_uri();
 
     get(&app, &uri).await;
@@ -147,5 +178,7 @@ async fn with_valkey_an_expired_page_is_served_stale_and_refreshed_in_the_backgr
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     };
-    tokio::time::timeout(Duration::from_secs(2), refreshed).await.expect("background refresh never rendered");
+    tokio::time::timeout(Duration::from_secs(2), refreshed)
+        .await
+        .expect("background refresh never rendered");
 }

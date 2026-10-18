@@ -9,7 +9,9 @@ const WARM_USAGE: &str = "usage: molisnap warm <sitemap-url> [--via <molisnap ba
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
         .init();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -28,7 +30,9 @@ async fn main() {
         })),
         None => None,
     };
-    let listener = tokio::net::TcpListener::bind(&cfg.listen_addr).await.expect("bind LISTEN_ADDR");
+    let listener = tokio::net::TcpListener::bind(&cfg.listen_addr)
+        .await
+        .expect("bind LISTEN_ADDR");
     info!(addr = %cfg.listen_addr, hosts = ?cfg.allowed_hosts, valkey = cache.is_some(), "molisnap listening");
 
     let renderer = render::moli(cfg.moli_bin.clone(), cfg.render_timeout_ms);
@@ -43,13 +47,23 @@ async fn main() {
 /// Exit codes: 0 all pages warmed, 1 sitemap error or any page failed, 2 bad arguments.
 async fn warm_cli(args: &[String]) -> i32 {
     let mut sitemap = None;
-    let mut opts = WarmOptions { via: None, format: Format::Html, concurrency: 4 };
+    let mut opts = WarmOptions {
+        via: None,
+        format: Format::Html,
+        concurrency: 4,
+    };
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         let parsed = match arg.as_str() {
             "--via" => args.next().map(|v| opts.via = Some(v.clone())),
-            "--format" => args.next().and_then(|v| Format::parse(v)).map(|f| opts.format = f),
-            "--concurrency" => args.next().and_then(|v| v.parse().ok()).map(|n| opts.concurrency = n),
+            "--format" => args
+                .next()
+                .and_then(|v| Format::parse(v))
+                .map(|f| opts.format = f),
+            "--concurrency" => args
+                .next()
+                .and_then(|v| v.parse().ok())
+                .map(|n| opts.concurrency = n),
             other if !other.starts_with("--") && sitemap.is_none() => {
                 sitemap = Some(other.to_string());
                 Some(())
@@ -78,7 +92,11 @@ async fn warm_cli(args: &[String]) -> i32 {
             for (url, reason) in &report.failed {
                 eprintln!("failed {url}: {reason}");
             }
-            println!("warmed {} pages, {} failed", report.warmed, report.failed.len());
+            println!(
+                "warmed {} pages, {} failed",
+                report.warmed,
+                report.failed.len()
+            );
             if report.failed.is_empty() { 0 } else { 1 }
         }
         Err(e) => {

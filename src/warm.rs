@@ -16,11 +16,17 @@ pub struct WarmRequest {
 
 impl WarmRequest {
     fn new(url: String) -> Self {
-        Self { url, headers: vec![("user-agent", USER_AGENT.to_string())] }
+        Self {
+            url,
+            headers: vec![("user-agent", USER_AGENT.to_string())],
+        }
     }
 
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -49,7 +55,11 @@ pub struct WarmReport {
     pub failed: Vec<(String, String)>,
 }
 
-pub async fn warm<F: Fetch + Sync>(fetch: &F, sitemap_url: &str, opts: &WarmOptions) -> Result<WarmReport, String> {
+pub async fn warm<F: Fetch + Sync>(
+    fetch: &F,
+    sitemap_url: &str,
+    opts: &WarmOptions,
+) -> Result<WarmReport, String> {
     let pages = page_urls(fetch, sitemap_url).await?;
 
     let results: Vec<_> = futures::stream::iter(pages)
@@ -61,7 +71,8 @@ pub async fn warm<F: Fetch + Sync>(fetch: &F, sitemap_url: &str, opts: &WarmOpti
             let mut req = WarmRequest::new(url);
             // nginx picks the format from Accept; molisnap's path mode reads X-Render-Format.
             req.headers.push(("accept", opts.format.mime().to_string()));
-            req.headers.push(("x-render-format", opts.format.as_str().to_string()));
+            req.headers
+                .push(("x-render-format", opts.format.as_str().to_string()));
             async move {
                 let url = req.url.clone();
                 match fetch.get(req).await {
@@ -131,7 +142,11 @@ pub struct HttpFetch(reqwest::Client);
 impl HttpFetch {
     /// `timeout` should cover a cold render behind the target, not just the network.
     pub fn new(timeout: std::time::Duration) -> Result<Self, String> {
-        reqwest::Client::builder().timeout(timeout).build().map(Self).map_err(|e| e.to_string())
+        reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .map(Self)
+            .map_err(|e| e.to_string())
     }
 }
 
