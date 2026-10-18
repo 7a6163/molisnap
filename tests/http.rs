@@ -8,7 +8,7 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, Response};
 use futures::FutureExt;
-use molisnap::{AppState, Cache, Config, Page, Renderer, app, now_secs};
+use molisnap::{AppState, Cache, Config, Page, Renderer, app, now_secs, strip_query_params};
 use tower::ServiceExt;
 
 fn config(fresh_secs: u64, stale_secs: u64) -> Config {
@@ -21,6 +21,7 @@ fn config(fresh_secs: u64, stale_secs: u64) -> Config {
         stale_secs,
         render_timeout_ms: 5_000,
         max_concurrent_renders: 4,
+        strip_query_params: strip_query_params(None),
     }
 }
 
@@ -71,6 +72,13 @@ impl FakeRenderer {
     }
 }
 
+async fn body(res: Response<Body>) -> String {
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    String::from_utf8(bytes.to_vec()).unwrap()
+}
+
 async fn get(app: &Router, uri: &str) -> Response<Body> {
     app.clone()
         .oneshot(Request::get(uri).body(Body::empty()).unwrap())
@@ -116,6 +124,57 @@ async fn concurrent_requests_for_one_page_share_a_single_render() {
     assert_eq!(fake.calls(), 1);
 }
 
+#[tokio::test]
+async fn tracking_parameters_are_stripped_before_rendering() {
+    let fake = FakeRenderer::new(200);
+    let app = app(AppState::new(config(3600, 86400), None, fake.renderer()));
+
+    let res = get(&app, "/https://example.com/a?id=7&fbclid=abc&UTM_Source=fb").await;
+
+    assert_eq!(body(res).await, "rendered https://example.com/a?id=7");
+}
+
+#[tokio::test]
+async fn a_url_with_only_tracking_parameters_loses_its_question_mark() {
+    let fake = FakeRenderer::new(200);
+    let app = app(AppState::new(config(3600, 86400), None, fake.renderer()));
+
+    let res = get(&app, "/https://example.com/a?utm_source=fb&gclid=1").await;
+
+    assert_eq!(body(res).await, "rendered https://example.com/a");
+}
+
+#[tokio::test]
+async fn untracked_parameters_keep_their_order_and_encoding() {
+    let fake = FakeRenderer::new(200);
+    let app = app(AppState::new(config(3600, 86400), None, fake.renderer()));
+
+    let res = get(
+        &app,
+        "/https://example.com/s?q=a%20b&fbclid=x&sort=new&q=c+d",
+    )
+    .await;
+
+    assert_eq!(
+        body(res).await,
+        "rendered https://example.com/s?q=a%20b&sort=new&q=c+d"
+    );
+}
+
+#[tokio::test]
+async fn an_empty_strip_list_leaves_the_query_alone() {
+    let fake = FakeRenderer::new(200);
+    let cfg = Config {
+        strip_query_params: strip_query_params(Some("")),
+        ..config(3600, 86400)
+    };
+    let app = app(AppState::new(cfg, None, fake.renderer()));
+
+    let res = get(&app, "/https://example.com/a?fbclid=abc").await;
+
+    assert_eq!(body(res).await, "rendered https://example.com/a?fbclid=abc");
+}
+
 /// Valkey-backed tests need a real server: `VALKEY_TEST_URL=redis://127.0.0.1:6390 cargo test`.
 /// Skipped locally when unset, but CI must never skip them silently.
 async fn valkey() -> Option<Cache> {
@@ -136,11 +195,14 @@ async fn valkey() -> Option<Cache> {
 
 /// A path no earlier run has cached, so tests don't see each other's entries.
 fn fresh_page_uri() -> String {
-    let nanos = std::time::SystemTime::now()
+    format!("/render?url=https://example.com/t/{}", unique())
+}
+
+fn unique() -> u128 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_nanos();
-    format!("/render?url=https://example.com/t/{nanos}")
+        .as_nanos()
 }
 
 #[tokio::test]
@@ -186,4 +248,22 @@ async fn with_valkey_an_expired_page_is_served_stale_and_refreshed_in_the_backgr
     tokio::time::timeout(Duration::from_secs(2), refreshed)
         .await
         .expect("background refresh never rendered");
+}
+
+#[tokio::test]
+async fn with_valkey_links_differing_only_in_click_ids_share_one_cache_entry() {
+    let Some(cache) = valkey().await else { return };
+    let fake = FakeRenderer::new(200);
+    let app = app(AppState::new(
+        config(3600, 86400),
+        Some(cache),
+        fake.renderer(),
+    ));
+    let page = format!("/https://example.com/t/{}", unique());
+
+    get(&app, &format!("{page}?fbclid=first")).await;
+    let second = get(&app, &format!("{page}?fbclid=second")).await;
+
+    assert_eq!(second.headers()["x-cache"], "HIT");
+    assert_eq!(fake.calls(), 1);
 }

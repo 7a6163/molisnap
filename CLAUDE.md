@@ -37,7 +37,7 @@ Record user-facing changes under `## [Unreleased]` in `CHANGELOG.md` (Keep a Cha
 
 `src/main.rs` only wires env config into `AppState::new(cfg, Option<Cache>, renderer)`; all logic is in `src/lib.rs`. The renderer is an injected `Renderer` closure (`render::moli` in production). The request path is `serve()`:
 
-1. `validate_url`: http(s) only, host must match `ALLOWED_HOSTS`, fragment dropped. Moli also runs with `--block-private-networks`. Together these stop SSRF. Don't loosen either one.
+1. `validate_url`: http(s) only, host must match `ALLOWED_HOSTS`, fragment dropped, tracking parameters (`STRIP_QUERY_PARAMS`) removed from the raw query so the rest keep their order and encoding. Moli also runs with `--block-private-networks`. Together these stop SSRF. Don't loosen either one.
 2. Cache key `molisnap:v1:{format}:{sha256(url)}`. Bump `v1` when the stored layout or render flags change.
 3. Valkey (if configured) hit: if younger than `CACHE_FRESH_SECS`, return it (`HIT`). If older, return it anyway (`STALE`) and refresh in the background behind a Valkey `SET NX EX` lock (`{key}:lock`), so only one replica refreshes.
 4. Miss: `render_once` is in-process single-flight. Concurrent requests for a key share one `Shared` future wrapping a `tokio::spawn`ed task, so a render finishes and fills the cache even if clients disconnect. A `Semaphore` caps concurrent Moli processes.

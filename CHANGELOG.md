@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Tracking parameters (`utm_*`, `fbclid`, `gclid` and similar) are stripped before a URL is rendered or cached, so links that differ only in click ids share one render and one cache entry. Configure with `STRIP_QUERY_PARAMS`; set it to empty to turn stripping off.
+
 ## [0.1.0] - 2026-10-18
 
 First release.

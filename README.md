@@ -53,6 +53,13 @@ docker run -p 3000:3000 -e ALLOWED_HOSTS=example.com ghcr.io/7a6163/molisnap:mai
 | `CACHE_STALE_SECS` | `86400` | After the fresh window, the old page is still served for this long while it is re-rendered in the background. Also used as `stale-while-revalidate` |
 | `RENDER_TIMEOUT_MS` | `20000` | |
 | `MAX_CONCURRENT_RENDERS` | `8` | |
+| `STRIP_QUERY_PARAMS` | built-in tracking list | Comma-separated query parameters removed before a URL is rendered or cached (case-insensitive). Set to empty to strip nothing |
+
+### Tracking parameters
+
+Every distinct URL is its own render and cache entry, so one link shared on Facebook or LINE with a click id can turn into many copies of the same page. Tracking parameters are removed first: `/a?id=7&fbclid=abc&utm_source=fb` is rendered and cached as `/a?id=7`, and `/a?utm_source=fb` as `/a`. The other parameters keep their order and encoding. The default list covers `utm_*`, `gclid`/`gbraid`/`wbraid`, `fbclid`, `igshid`, `ttclid`, `twclid`, `msclkid`, `yclid`, `li_fat_id`, `mc_cid`/`mc_eid`, `mkt_tok`, `_hsenc` and similar (see `DEFAULT_STRIPPED_PARAMS` in `src/lib.rs`).
+
+With nginx caching, also leave these parameters out of `proxy_cache_key`, or nginx keeps one copy per click id even though molisnap renders the page once.
 
 ## Sitemap prewarming
 

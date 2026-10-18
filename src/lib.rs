@@ -109,6 +109,71 @@ pub struct Config {
     pub stale_secs: u64,
     pub render_timeout_ms: u64,
     pub max_concurrent_renders: usize,
+    /// Lowercase query parameter names removed before a URL is rendered or cached.
+    pub strip_query_params: Vec<String>,
+}
+
+/// Tracking parameters: each distinct value would otherwise be its own render and
+/// cache entry for the same page.
+pub const DEFAULT_STRIPPED_PARAMS: &[&str] = &[
+    // Google / Analytics
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "utm_id",
+    "utm_source_platform",
+    "utm_creative_format",
+    "utm_marketing_tactic",
+    "_ga",
+    "_gl",
+    "gclid",
+    "gclsrc",
+    "dclid",
+    "gbraid",
+    "wbraid",
+    // Meta / LINE / TikTok / X / LinkedIn / Microsoft / Yandex
+    "fbclid",
+    "fb_action_ids",
+    "fb_action_types",
+    "fb_source",
+    "igshid",
+    "igsh",
+    "ttclid",
+    "twclid",
+    "li_fat_id",
+    "msclkid",
+    "yclid",
+    "openexternalbrowser",
+    // Mail / affiliate
+    "mc_cid",
+    "mc_eid",
+    "mkt_tok",
+    "vero_id",
+    "vero_conv",
+    "_hsenc",
+    "_hsmi",
+    "hsa_cam",
+    "hsa_grp",
+    "hsa_ad",
+    "ref_src",
+    "ref_url",
+];
+
+/// `STRIP_QUERY_PARAMS`: unset uses the defaults, empty strips nothing.
+pub fn strip_query_params(raw: Option<&str>) -> Vec<String> {
+    match raw {
+        None => DEFAULT_STRIPPED_PARAMS
+            .iter()
+            .map(|p| p.to_string())
+            .collect(),
+        Some(list) => list
+            .split(',')
+            .map(|p| p.trim().to_ascii_lowercase())
+            .filter(|p| !p.is_empty())
+            .collect(),
+    }
 }
 
 impl Config {
@@ -141,6 +206,9 @@ impl Config {
             stale_secs: num("CACHE_STALE_SECS", "86400")?,
             render_timeout_ms: num("RENDER_TIMEOUT_MS", "20000")?,
             max_concurrent_renders: num("MAX_CONCURRENT_RENDERS", "8")?,
+            strip_query_params: strip_query_params(
+                std::env::var("STRIP_QUERY_PARAMS").ok().as_deref(),
+            ),
         })
     }
 
@@ -278,7 +346,25 @@ fn validate_url(cfg: &Config, raw: &str) -> Result<Url, String> {
         return Err(format!("host `{host}` is not in ALLOWED_HOSTS"));
     }
     url.set_fragment(None);
+    strip_params(&mut url, &cfg.strip_query_params);
     Ok(url)
+}
+
+/// Works on the raw query so the parameters that stay keep their order and encoding.
+fn strip_params(url: &mut Url, names: &[String]) {
+    let Some(query) = url.query() else { return };
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|pair| {
+            let name = pair.split('=').next().unwrap_or("");
+            !names.iter().any(|n| n.eq_ignore_ascii_case(name))
+        })
+        .collect();
+    if kept.len() == query.split('&').count() {
+        return;
+    }
+    let kept = kept.join("&");
+    url.set_query((!kept.is_empty()).then_some(kept.as_str()));
 }
 
 fn cache_key(url: &Url, format: Format) -> String {
@@ -381,7 +467,15 @@ mod tests {
             stale_secs: 0,
             render_timeout_ms: 0,
             max_concurrent_renders: 1,
+            strip_query_params: strip_query_params(None),
         }
+    }
+
+    #[test]
+    fn strip_list_defaults_when_unset_and_is_empty_when_blank() {
+        assert!(strip_query_params(None).contains(&"fbclid".to_string()));
+        assert!(strip_query_params(Some("")).is_empty());
+        assert_eq!(strip_query_params(Some(" Ref , ,sid")), ["ref", "sid"]);
     }
 
     #[test]
