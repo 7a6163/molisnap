@@ -112,3 +112,7 @@ location @render {
     add_header X-Cache $upstream_cache_status;
 }
 ```
+
+## 授權
+
+MIT，見 [LICENSE](LICENSE)。Docker image 內附的 Moli 依其 Apache-2.0 或 MIT 授權散布，授權聲明放在 image 的 `/usr/share/doc/moli/`。
