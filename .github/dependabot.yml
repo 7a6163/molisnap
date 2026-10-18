@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # Majors stay separate PRs since they may need code changes.
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Base images in the Dockerfile. Moli itself is a release download, not tracked here:
+  # bump MOLI_VERSION in the Dockerfile and ci.yml by hand.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  # valkey/valkey in docker-compose.yml.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
