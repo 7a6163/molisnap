@@ -198,11 +198,15 @@ fn fresh_page_uri() -> String {
     format!("/render?url=https://example.com/t/{}", unique())
 }
 
-fn unique() -> u128 {
-    std::time::SystemTime::now()
+/// Clock time keeps runs apart; the counter keeps parallel tests apart, since the
+/// clock can return the same value to two of them.
+fn unique() -> String {
+    static SEQ: AtomicUsize = AtomicUsize::new(0);
+    let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_nanos()
+        .as_nanos();
+    format!("{nanos}-{}", SEQ.fetch_add(1, Ordering::SeqCst))
 }
 
 #[tokio::test]
@@ -266,4 +270,67 @@ async fn with_valkey_links_differing_only_in_click_ids_share_one_cache_entry() {
 
     assert_eq!(second.headers()["x-cache"], "HIT");
     assert_eq!(fake.calls(), 1);
+}
+
+#[tokio::test]
+async fn with_valkey_a_replica_waits_for_another_replicas_render_instead_of_repeating_it() {
+    let (Some(cache_a), Some(cache_b)) = (valkey().await, valkey().await) else {
+        return;
+    };
+    let (fake_a, fake_b) = (FakeRenderer::slow(200), FakeRenderer::slow(200));
+    let replica_a = app(AppState::new(
+        config(3600, 86400),
+        Some(cache_a),
+        fake_a.renderer(),
+    ));
+    let replica_b = app(AppState::new(
+        config(3600, 86400),
+        Some(cache_b),
+        fake_b.renderer(),
+    ));
+    let uri = fresh_page_uri();
+
+    let (a, b) = tokio::join!(get(&replica_a, &uri), async {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        get(&replica_b, &uri).await
+    });
+
+    assert_eq!(a.status(), 200);
+    assert_eq!(b.status(), 200);
+    assert_eq!(fake_a.calls() + fake_b.calls(), 1);
+    assert_eq!(body(b).await, body(a).await);
+}
+
+#[tokio::test]
+async fn with_valkey_a_waiting_replica_renders_itself_when_the_other_render_is_not_cacheable() {
+    let (Some(cache_a), Some(cache_b)) = (valkey().await, valkey().await) else {
+        return;
+    };
+    let (fake_a, fake_b) = (FakeRenderer::slow(503), FakeRenderer::new(200));
+    let replica_a = app(AppState::new(
+        config(3600, 86400),
+        Some(cache_a),
+        fake_a.renderer(),
+    ));
+    let replica_b = app(AppState::new(
+        config(3600, 86400),
+        Some(cache_b),
+        fake_b.renderer(),
+    ));
+    let uri = fresh_page_uri();
+
+    // B must notice the lock was released, not wait for it to expire.
+    let (a, b) = tokio::time::timeout(
+        Duration::from_secs(2),
+        futures::future::join(get(&replica_a, &uri), async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            get(&replica_b, &uri).await
+        }),
+    )
+    .await
+    .expect("waiting replica held on until the lock expired");
+
+    assert_eq!(a.status(), 503);
+    assert_eq!(b.status(), 200);
+    assert_eq!(fake_b.calls(), 1);
 }

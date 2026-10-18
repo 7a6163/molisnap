@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Added
 
 - Tracking parameters (`utm_*`, `fbclid`, `gclid` and similar) are stripped before a URL is rendered or cached, so links that differ only in click ids share one render and one cache entry. Configure with `STRIP_QUERY_PARAMS`; set it to empty to turn stripping off.
+- With Valkey, a page that is not cached yet renders once across all replicas: the first replica takes a lock in Valkey and the others wait for its result instead of rendering it again. If that render isn't cacheable, or its replica dies, a waiting replica renders the page itself.
 
 ## [0.1.0] - 2026-10-18
 

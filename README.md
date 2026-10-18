@@ -7,7 +7,7 @@ A prerendering service that lets search engine crawlers and AI bots read SPAs. P
 Pick one of two caching modes:
 
 - **`VALKEY_URL` unset** (recommended when nginx or a CDN sits in front): the service is stateless and sends `Cache-Control` headers, so nginx `proxy_cache` or the CDN does the caching.
-- **`VALKEY_URL` set**: the service caches in Valkey itself. Use this when several replicas need to share one cache, when you need to purge entries on demand, or when the service is exposed directly.
+- **`VALKEY_URL` set**: the service caches in Valkey itself. Use this when several replicas need to share one cache (a page then renders once across all of them), when you need to purge entries on demand, or when the service is exposed directly.
 
 ## Quick start
 

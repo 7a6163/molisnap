@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use redis::AsyncCommands;
 use redis::aio::ConnectionManager;
@@ -63,25 +64,72 @@ impl Cache {
         }
     }
 
-    /// Cross-instance guard so only one replica refreshes a stale page. Expires on its own.
-    pub async fn try_lock(&self, key: &str, ttl_secs: u64) -> bool {
+    /// Cross-replica render lock (`{key}:lock`), so a page renders once across replicas.
+    /// Expires on its own if the holder dies. Fails open to `Acquired`.
+    pub async fn lock(&self, key: &str, ttl_secs: u64) -> Lock {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let token = format!(
+            "{}-{}-{}",
+            std::process::id(),
+            crate::now_nanos(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        );
         let mut c = self.conn.clone();
         let res: redis::RedisResult<Option<String>> = redis::cmd("SET")
-            .arg(format!("{key}:lock"))
-            .arg(1)
+            .arg(lock_key(key))
+            .arg(&token)
             .arg("NX")
             .arg("EX")
             .arg(ttl_secs)
             .query_async(&mut c)
             .await;
         match res {
-            Ok(v) => v.is_some(),
+            Ok(Some(_)) => Lock::Acquired(token),
+            Ok(None) => Lock::Held,
             Err(e) => {
                 warn!(%key, error = %e, "valkey lock failed");
-                true
+                Lock::Acquired(token)
             }
         }
     }
+
+    /// Releases the lock only if it is still ours (it may have expired and been retaken).
+    pub async fn unlock(&self, key: &str, token: &str) {
+        let mut c = self.conn.clone();
+        let res: redis::RedisResult<i64> = redis::Script::new(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+        )
+        .key(lock_key(key))
+        .arg(token)
+        .invoke_async(&mut c)
+        .await;
+        if let Err(e) = res {
+            warn!(%key, error = %e, "valkey unlock failed");
+        }
+    }
+
+    /// Whether some replica holds the render lock. Errors read as unlocked, so waiters render.
+    pub async fn locked(&self, key: &str) -> bool {
+        let mut c = self.conn.clone();
+        match c.exists(lock_key(key)).await {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(%key, error = %e, "valkey lock check failed");
+                false
+            }
+        }
+    }
+}
+
+pub enum Lock {
+    /// Ours; pass the token to [`Cache::unlock`].
+    Acquired(String),
+    /// Another replica is rendering this key.
+    Held,
+}
+
+fn lock_key(key: &str) -> String {
+    format!("{key}:lock")
 }
 
 fn field<T: FromStr>(m: &HashMap<String, Vec<u8>>, name: &str) -> Option<T> {

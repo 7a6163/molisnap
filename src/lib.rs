@@ -20,7 +20,7 @@ use tokio::sync::Semaphore;
 use tracing::{info, warn};
 use url::Url;
 
-pub use cache::Cache;
+pub use cache::{Cache, Lock};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Format {
@@ -95,6 +95,13 @@ pub fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn now_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
         .unwrap_or(0)
 }
 
@@ -311,19 +318,12 @@ async fn serve(st: St, raw_url: &str, format: Format) -> Response {
             return respond(&st.cfg, page, format, "HIT");
         }
         // Stale-while-revalidate: answer now, refresh in the background (once across replicas).
-        let lock_secs = st.cfg.render_timeout_ms / 1000 + 10;
-        let (st2, key2) = (st.clone(), key.clone());
-        tokio::spawn(async move {
-            if let Some(cache) = &st2.cache
-                && cache.try_lock(&key2, lock_secs).await
-            {
-                let _ = render_once(&st2, key2, url, format).await;
-            }
-        });
+        // The render is already a spawned task; nothing here needs its result.
+        drop(render_once(&st, key, url, format, Peer::Skip));
         return respond(&st.cfg, page, format, "STALE");
     }
 
-    match render_once(&st, key, url, format).await {
+    match render_once(&st, key, url, format, Peer::Wait).await {
         Ok(page) => respond(&st.cfg, page, format, "MISS"),
         Err(e) => {
             warn!(error = %e, "render failed");
@@ -373,9 +373,18 @@ fn cache_key(url: &Url, format: Format) -> String {
     format!("molisnap:v1:{}:{hex}", format.as_str())
 }
 
+/// What to do when another replica holds the Valkey render lock for the key.
+#[derive(Clone, Copy)]
+enum Peer {
+    /// Cache miss: wait for its render to land in the cache.
+    Wait,
+    /// Stale refresh: the client already has an answer, so leave it to the other replica.
+    Skip,
+}
+
 /// Starts (or joins) the render for `key`. The work runs in its own task, so it
 /// finishes and fills the cache even if every waiting client disconnects.
-fn render_once(st: &St, key: String, url: Url, format: Format) -> RenderFuture {
+fn render_once(st: &St, key: String, url: Url, format: Format, peer: Peer) -> RenderFuture {
     let mut inflight = st.inflight.lock().unwrap();
     if let Some(fut) = inflight.get(&key) {
         return fut.clone();
@@ -383,7 +392,7 @@ fn render_once(st: &St, key: String, url: Url, format: Format) -> RenderFuture {
     let st2 = st.clone();
     let key2 = key.clone();
     let task = tokio::spawn(async move {
-        let res = render_and_store(&st2, &key2, url.as_str(), format).await;
+        let res = coordinated_render(&st2, &key2, url.as_str(), format, peer).await;
         st2.inflight.lock().unwrap().remove(&key2);
         res
     });
@@ -392,6 +401,52 @@ fn render_once(st: &St, key: String, url: Url, format: Format) -> RenderFuture {
         .shared();
     inflight.insert(key, fut.clone());
     fut
+}
+
+/// Renders under the Valkey lock so one replica renders a page at a time. Without
+/// Valkey this is just [`render_and_store`].
+async fn coordinated_render(
+    st: &AppState,
+    key: &str,
+    url: &str,
+    format: Format,
+    peer: Peer,
+) -> Result<Page, String> {
+    let Some(cache) = &st.cache else {
+        return render_and_store(st, key, url, format).await;
+    };
+    let lock_secs = st.cfg.render_timeout_ms / 1000 + 10;
+    match (cache.lock(key, lock_secs).await, peer) {
+        (Lock::Acquired(token), _) => {
+            let res = render_and_store(st, key, url, format).await;
+            cache.unlock(key, &token).await;
+            res
+        }
+        (Lock::Held, Peer::Skip) => Err("another replica is refreshing".into()),
+        (Lock::Held, Peer::Wait) => {
+            if let Some(page) = wait_for_peer(cache, key, Duration::from_secs(lock_secs)).await {
+                return Ok(page);
+            }
+            // The other render wasn't cacheable, its replica died, or it is taking too long.
+            render_and_store(st, key, url, format).await
+        }
+    }
+}
+
+/// Polls until the lock holder's page is in the cache. `None` once the lock is gone
+/// without a page, or after `max`.
+async fn wait_for_peer(cache: &Cache, key: &str, max: Duration) -> Option<Page> {
+    let deadline = tokio::time::Instant::now() + max;
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if let Some(page) = cache.get(key).await {
+            return Some(page);
+        }
+        if !cache.locked(key).await {
+            return cache.get(key).await;
+        }
+    }
+    None
 }
 
 async fn render_and_store(
