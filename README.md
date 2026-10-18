@@ -1,13 +1,15 @@
 # molisnap
 
-給搜尋引擎爬蟲與 AI bot 用的 SPA 預渲染服務。使用 [Moli](https://github.com/lexmount/moli) headless 瀏覽器渲染。
+[![CI](https://github.com/7a6163/molisnap/actions/workflows/ci.yml/badge.svg)](https://github.com/7a6163/molisnap/actions/workflows/ci.yml)
 
-快取有兩種做法，二選一：
+A prerendering service that lets search engine crawlers and AI bots read SPAs. Pages are rendered with the [Moli](https://github.com/lexmount/moli) headless browser.
 
-- **不設 `VALKEY_URL`**（建議前面有 nginx 或 CDN 時使用）：服務本身不保存狀態，回應帶 `Cache-Control`，由 nginx `proxy_cache` 或 CDN 快取。
-- **設 `VALKEY_URL`**：服務自己用 Valkey 快取。適合多台機器要共用快取、需要主動清除快取，或服務直接對外的情況。
+Pick one of two caching modes:
 
-## 快速開始
+- **`VALKEY_URL` unset** (recommended when nginx or a CDN sits in front): the service is stateless and sends `Cache-Control` headers, so nginx `proxy_cache` or the CDN does the caching.
+- **`VALKEY_URL` set**: the service caches in Valkey itself. Use this when several replicas need to share one cache, when you need to purge entries on demand, or when the service is exposed directly.
+
+## Quick start
 
 ```sh
 ALLOWED_HOSTS=example.com docker compose up --build
@@ -17,48 +19,48 @@ curl -H 'Accept: text/markdown' "http://localhost:3000/render?url=https://exampl
 
 ## API
 
-| 請求 | 說明 |
+| Request | Description |
 |---|---|
-| `GET /render?url=<url>&format=html\|markdown\|semantic` | 沒給 `format` 時，`Accept: text/markdown` 回 Markdown，其他情況回 HTML |
-| `GET /<完整 url>` | Prerender 風格，給 nginx 轉發用。格式由 `X-Render-Format` 或 `Accept` header 決定 |
-| `GET /healthz` | 健康檢查 |
+| `GET /render?url=<url>&format=html\|markdown\|semantic` | Without `format`, `Accept: text/markdown` returns Markdown; anything else returns HTML |
+| `GET /<full url>` | Prerender-style path for nginx to proxy to. The format comes from the `X-Render-Format` or `Accept` header |
+| `GET /healthz` | Health check |
 
-- 回應的 HTTP 狀態碼與原站相同（例如 404）。
-- SPA 沒辦法回真正的 404，所以「找不到」頁面可以在渲染後加上 `<meta name="prerender-status-code" content="404">`（4xx、5xx 都可以），回應就會是該狀態碼，內容為空。
-- `X-Cache` 的值是 `HIT`、`STALE` 或 `MISS`（沒有 Valkey 時一律是 `MISS`）。`Age` 是快取內容渲染後經過的秒數。
-- 可快取的回應（2xx、404、410）帶 `Cache-Control: public, max-age=<fresh>, stale-while-revalidate=<stale>, stale-if-error=<stale>`，其他狀態碼帶 `no-store`。
-- HTML 輸出會移除 `<script>`，給爬蟲的是靜態快照。
+- The response status matches the origin's (for example 404).
+- An SPA can't send a real 404, so a not-found view can add `<meta name="prerender-status-code" content="404">` after rendering (any 4xx or 5xx works). The response then has that status and an empty body.
+- `X-Cache` is `HIT`, `STALE` or `MISS` (always `MISS` without Valkey). `Age` is the number of seconds since the cached copy was rendered.
+- Cacheable responses (2xx, 404, 410) carry `Cache-Control: public, max-age=<fresh>, stale-while-revalidate=<stale>, stale-if-error=<stale>`. Every other status gets `no-store`.
+- HTML output has its `<script>` tags removed, so crawlers get a static snapshot.
 
-## 設定（環境變數）
+## Configuration (environment variables)
 
-| 變數 | 預設 | 說明 |
+| Variable | Default | Description |
 |---|---|---|
-| `ALLOWED_HOSTS` | **必填** | 允許渲染的網域，以逗號分隔。`*.example.com` 代表所有子網域 |
-| `VALKEY_URL` | 不設 | 不設就不使用 Valkey |
+| `ALLOWED_HOSTS` | **required** | Comma-separated hosts that may be rendered. `*.example.com` matches every subdomain |
+| `VALKEY_URL` | unset | Valkey is not used when unset |
 | `MOLI_BIN` | `moli` | |
 | `LISTEN_ADDR` | `0.0.0.0:3000` | |
-| `CACHE_FRESH_SECS` | `3600` | 在這段時間內直接回傳快取，也是 `max-age` |
-| `CACHE_STALE_SECS` | `86400` | 超過 fresh 期間後的這段時間內，先回舊內容，同時在背景重新渲染，也是 `stale-while-revalidate` |
+| `CACHE_FRESH_SECS` | `3600` | Cached pages are served as-is for this long. Also used as `max-age` |
+| `CACHE_STALE_SECS` | `86400` | After the fresh window, the old page is still served for this long while it is re-rendered in the background. Also used as `stale-while-revalidate` |
 | `RENDER_TIMEOUT_MS` | `20000` | |
 | `MAX_CONCURRENT_RENDERS` | `8` | |
 
-## sitemap 預熱
+## Sitemap prewarming
 
 ```sh
-# 預熱 molisnap 的 Valkey 快取
+# Warm molisnap's Valkey cache
 molisnap warm https://example.com/sitemap.xml --via http://molisnap:3000
 
-# 沒有 --via：直接以 bot 身分（User-Agent: molisnap-warm/0.1）請求頁面，預熱前面的 nginx 或 CDN
+# Without --via: request pages directly as a bot (User-Agent: molisnap-warm/0.1) to warm the nginx or CDN cache in front
 molisnap warm https://example.com/sitemap.xml --format markdown --concurrency 8
 ```
 
-- 支援 sitemap index（只往下一層，依 sitemap 規範）。不支援 `.xml.gz`。
-- 回傳值：全部成功是 0；sitemap 抓不到或有頁面失敗是 1（失敗的頁面會列在 stderr）；參數錯誤是 2。適合放進 cron。
-- 不用 `--via` 時，nginx 的 bot 判斷要包含 `molisnap-warm`（下面的範例已經加上）。
+- Sitemap indexes are supported (one level deep, as the sitemap protocol allows). `.xml.gz` sitemaps are not.
+- Exit codes: 0 when every page was warmed; 1 when the sitemap can't be fetched or any page fails (failed pages are listed on stderr); 2 for bad arguments. Suitable for cron.
+- Without `--via`, nginx's bot rule must include `molisnap-warm` (the example below already does).
 
-## 在 SPA 前面用 nginx 分流
+## Routing bots with nginx in front of the SPA
 
-bot 轉給 molisnap，一般使用者照常拿 SPA：
+Bots go to molisnap; everyone else gets the SPA as usual:
 
 ```nginx
 map $http_user_agent $is_bot {
@@ -67,7 +69,7 @@ map $http_user_agent $is_bot {
 }
 
 server {
-    # 靜態資源直接回（regex location 優先於 /）
+    # Serve static assets directly (regex locations take precedence over /)
     location ~* \.(js|css|png|jpe?g|gif|svg|webp|ico|woff2?|map|json|txt|xml)$ {
         try_files $uri =404;
     }
@@ -85,15 +87,15 @@ server {
 }
 ```
 
-### 不用 Valkey：讓 nginx 快取
+### Without Valkey: let nginx cache
 
-`@render` 換成下面這段。nginx 會依 molisnap 回的 `Cache-Control` 決定快取多久。過期時先回舊內容、在背景更新；同一網址只會有一個請求打到 molisnap；molisnap 出錯時也會繼續回舊快取。
+Replace `@render` with the block below. nginx follows the `Cache-Control` that molisnap sends to decide how long to keep each page. Expired pages are served stale while being refreshed in the background, only one request per URL reaches molisnap at a time, and nginx keeps serving the stale copy if molisnap fails.
 
 ```nginx
 proxy_cache_path /var/cache/nginx/render levels=1:2 keys_zone=render:50m
                  max_size=5g inactive=7d use_temp_path=off;
 
-# Accept header 的寫法太多種，先歸成兩類，避免同一頁快取出很多份
+# Accept headers vary a lot; collapse them into two values so one page isn't cached many times
 map $http_accept $render_fmt {
     default          html;
     ~text/markdown   markdown;
@@ -113,6 +115,6 @@ location @render {
 }
 ```
 
-## 授權
+## License
 
-MIT，見 [LICENSE](LICENSE)。Docker image 內附的 Moli 依其 Apache-2.0 或 MIT 授權散布，授權聲明放在 image 的 `/usr/share/doc/moli/`。
+MIT, see [LICENSE](LICENSE). The Moli binary bundled in the Docker image is distributed under its Apache-2.0 or MIT license, with its notices in `/usr/share/doc/moli/` inside the image.
