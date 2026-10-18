@@ -116,6 +116,9 @@ pub struct Config {
     pub stale_secs: u64,
     pub render_timeout_ms: u64,
     pub max_concurrent_renders: usize,
+    /// JS expression the page makes truthy when it is ready (`RENDER_WAIT_SCRIPT`).
+    /// Unset: wait for network idle.
+    pub render_wait_script: Option<String>,
     /// Lowercase query parameter names removed before a URL is rendered or cached.
     pub strip_query_params: Vec<String>,
 }
@@ -213,6 +216,9 @@ impl Config {
             stale_secs: num("CACHE_STALE_SECS", "86400")?,
             render_timeout_ms: num("RENDER_TIMEOUT_MS", "20000")?,
             max_concurrent_renders: num("MAX_CONCURRENT_RENDERS", "8")?,
+            render_wait_script: std::env::var("RENDER_WAIT_SCRIPT")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
             strip_query_params: strip_query_params(
                 std::env::var("STRIP_QUERY_PARAMS").ok().as_deref(),
             ),
@@ -370,7 +376,7 @@ fn strip_params(url: &mut Url, names: &[String]) {
 fn cache_key(url: &Url, format: Format) -> String {
     let digest = Sha256::digest(url.as_str().as_bytes());
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    format!("molisnap:v1:{}:{hex}", format.as_str())
+    format!("molisnap:v2:{}:{hex}", format.as_str())
 }
 
 /// What to do when another replica holds the Valkey render lock for the key.
@@ -522,6 +528,7 @@ mod tests {
             stale_secs: 0,
             render_timeout_ms: 0,
             max_concurrent_renders: 1,
+            render_wait_script: None,
             strip_query_params: strip_query_params(None),
         }
     }

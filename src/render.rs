@@ -7,11 +7,21 @@ use futures::FutureExt;
 
 use crate::{Format, Page, Renderer, now_secs};
 
+/// How to run Moli.
+#[derive(Clone, Debug)]
+pub struct Moli {
+    pub bin: String,
+    pub timeout_ms: u64,
+    /// JS expression; when set, the capture waits until it is truthy instead of for network idle.
+    pub wait_script: Option<String>,
+}
+
 /// The production [`Renderer`]: one `moli fetch` subprocess per render.
-pub fn moli(moli_bin: String, timeout_ms: u64) -> Renderer {
+pub fn moli(opts: Moli) -> Renderer {
+    let opts = std::sync::Arc::new(opts);
     std::sync::Arc::new(move |url, format| {
-        let moli_bin = moli_bin.clone();
-        async move { render(&moli_bin, timeout_ms, &url, format).await }.boxed()
+        let opts = opts.clone();
+        async move { render(&opts, &url, format).await }.boxed()
     })
 }
 
@@ -29,15 +39,18 @@ const META_STATUS_CHECK: &str = r#"(() => {
 ///
 /// Exit 0 means a 2xx/3xx document. With `--fail-with-body`, an origin status >= 400
 /// exits 22 but still writes the body, and the status is reported on stderr.
-pub async fn render(
-    moli_bin: &str,
-    timeout_ms: u64,
-    url: &str,
-    format: Format,
-) -> Result<Page, String> {
+pub async fn render(opts: &Moli, url: &str, format: Format) -> Result<Page, String> {
+    let (moli_bin, timeout_ms) = (&opts.bin, opts.timeout_ms);
     let mut cmd = Command::new(moli_bin);
-    cmd.args(["fetch", "--dump", format.moli_dump(), "--wait", "done"])
-        .args(["--timeout", &timeout_ms.to_string()])
+    cmd.args(["fetch", "--dump", format.moli_dump()]);
+    match &opts.wait_script {
+        // The page says when it is done; a timeout is an error, never a half-loaded capture.
+        Some(script) => cmd.args(["--wait", "load", "--wait-script", script]),
+        // `done`/`load` return before an SPA's API calls finish. Network idle waits for them,
+        // and on timeout returns the page as it stands.
+        None => cmd.args(["--wait", "networkidle"]),
+    };
+    cmd.args(["--timeout", &timeout_ms.to_string()])
         .args(["--fail-with-body", "--block-private-networks"])
         .args(["--eval", META_STATUS_CHECK]);
     if format == Format::Html {

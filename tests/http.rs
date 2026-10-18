@@ -21,6 +21,7 @@ fn config(fresh_secs: u64, stale_secs: u64) -> Config {
         stale_secs,
         render_timeout_ms: 5_000,
         max_concurrent_renders: 4,
+        render_wait_script: None,
         strip_query_params: strip_query_params(None),
     }
 }

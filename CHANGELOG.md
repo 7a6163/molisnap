@@ -4,7 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- SPAs that load their content from an API were captured before the data arrived, so crawlers got the loading shell (and it was cached). Pages are now captured once the network is idle. The cache key moves to `molisnap:v2`, so shells cached by 0.1.0 are no longer served.
+
 ### Added
+
+- `RENDER_WAIT_SCRIPT`: a JS expression (e.g. `window.prerenderReady === true`) the page makes truthy when it is ready. Captures then wait for the page's own signal instead of network idle, and a page that never signals fails instead of being cached half-loaded.
 
 - Tracking parameters (`utm_*`, `fbclid`, `gclid` and similar) are stripped before a URL is rendered or cached, so links that differ only in click ids share one render and one cache entry. Configure with `STRIP_QUERY_PARAMS`; set it to empty to turn stripping off.
 - With Valkey, a page that is not cached yet renders once across all replicas: the first replica takes a lock in Valkey and the others wait for its result instead of rendering it again. If that render isn't cacheable, or its replica dies, a waiting replica renders the page itself.

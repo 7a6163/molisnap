@@ -53,7 +53,28 @@ docker run -p 3000:3000 -e ALLOWED_HOSTS=example.com ghcr.io/7a6163/molisnap:mai
 | `CACHE_STALE_SECS` | `86400` | After the fresh window, the old page is still served for this long while it is re-rendered in the background. Also used as `stale-while-revalidate` |
 | `RENDER_TIMEOUT_MS` | `20000` | |
 | `MAX_CONCURRENT_RENDERS` | `8` | |
+| `RENDER_WAIT_SCRIPT` | unset | JS expression the page makes truthy when it is ready, e.g. `window.prerenderReady === true`. Unset: capture once the network is idle. See below |
 | `STRIP_QUERY_PARAMS` | built-in tracking list | Comma-separated query parameters removed before a URL is rendered or cached (case-insensitive). Set to empty to strip nothing |
+
+### When is a page captured?
+
+A browser can't tell when an SPA has finished rendering, so molisnap goes by what it can see:
+
+- **Default: network idle.** The page is captured once no request has been in flight for a moment, so content an SPA loads from its API is included. Two kinds of page defeat this:
+  - A page that waits (a `setTimeout`, an animation) before making its request can be captured before the request starts.
+  - A page that always has a request open (a chat widget, a long-poll, a video embed) never goes idle. Each render then runs the full `RENDER_TIMEOUT_MS` and returns the page as it stands, with status 200.
+- **`RENDER_WAIT_SCRIPT`: the page says when it is done.** This is the only exact signal, because only the app knows when its data and meta tags are in place. For example, set `RENDER_WAIT_SCRIPT='window.prerenderReady === true'` and in the app:
+
+  ```html
+  <!-- in index.html -->
+  <script>window.prerenderReady = false;</script>
+  ```
+  ```js
+  // once the content and the meta tags are in place
+  window.prerenderReady = true;
+  ```
+
+  The capture then ignores network activity. A page that doesn't become ready within `RENDER_TIMEOUT_MS` fails with `502` (not cached) instead of serving a half-loaded page. The setting applies to every page, so every page you render has to set the signal.
 
 ### Tracking parameters
 

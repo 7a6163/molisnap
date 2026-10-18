@@ -35,7 +35,11 @@ async fn main() {
         .expect("bind LISTEN_ADDR");
     info!(addr = %cfg.listen_addr, hosts = ?cfg.allowed_hosts, valkey = cache.is_some(), "molisnap listening");
 
-    let renderer = render::moli(cfg.moli_bin.clone(), cfg.render_timeout_ms);
+    let renderer = render::moli(render::Moli {
+        bin: cfg.moli_bin.clone(),
+        timeout_ms: cfg.render_timeout_ms,
+        wait_script: cfg.render_wait_script.clone(),
+    });
     axum::serve(listener, app(AppState::new(cfg, cache, renderer)))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
