@@ -1,6 +1,6 @@
 services:
   valkey:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:9-alpine
     # Pure cache: bounded memory, evict least-recently-used pages, no persistence.
     command: valkey-server --maxmemory 512mb --maxmemory-policy allkeys-lru --save "" --appendonly no
 
