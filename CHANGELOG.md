@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-19
+
 ### Changed
 
 - Iframes are no longer loaded during a render (`--disable-subframes`). Embeds like chat widgets, video players and live code editors kept the network from going idle and used most of the time and memory on heavy pages: react.dev pages went from 4.3 s and ~550 MB to 1.4 s and ~145 MB per render. The `<iframe>` tags stay in the HTML. Cached pages stay valid, so the cache key is unchanged.
@@ -42,6 +44,7 @@ First release.
 - `molisnap warm` CLI that prewarms the cache from a sitemap or sitemap index, either through molisnap (`--via`) or directly as a bot to warm nginx or a CDN.
 - Multi-arch (amd64, arm64) Docker image at `ghcr.io/7a6163/molisnap`, bundling Moli and its license notices.
 
-[Unreleased]: https://github.com/7a6163/molisnap/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/7a6163/molisnap/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/7a6163/molisnap/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/7a6163/molisnap/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/7a6163/molisnap/releases/tag/v0.1.0
