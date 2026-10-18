@@ -63,6 +63,7 @@ A browser can't tell when an SPA has finished rendering, so molisnap goes by wha
 - **Default: network idle.** The page is captured once no request has been in flight for a moment, so content an SPA loads from its API is included. Two kinds of page defeat this:
   - A page that waits (a `setTimeout`, an animation) before making its request can be captured before the request starts.
   - A page that always has a request open (a chat widget, a long-poll, a video embed) never goes idle. Each render then runs the full `RENDER_TIMEOUT_MS` and returns the page as it stands, with status 200.
+- Iframes are not loaded. Embeds such as chat widgets, video players and live code editors are not content a crawler reads, and their traffic would keep the network busy. The `<iframe>` tags stay in the HTML.
 - **`RENDER_WAIT_SCRIPT`: the page says when it is done.** This is the only exact signal, because only the app knows when its data and meta tags are in place. For example, set `RENDER_WAIT_SCRIPT='window.prerenderReady === true'` and in the app:
 
   ```html
@@ -75,6 +76,10 @@ A browser can't tell when an SPA has finished rendering, so molisnap goes by wha
   ```
 
   The capture then ignores network activity. A page that doesn't become ready within `RENDER_TIMEOUT_MS` fails with `502` (not cached) instead of serving a half-loaded page. The setting applies to every page, so every page you render has to set the signal.
+
+### Resources
+
+Each render is one Moli process, which exits when it is done, so an idle instance uses about 10 MB. Memory during a render depends on the page's JavaScript; measured peaks were about 60 MB per render on Wikipedia and 150–180 MB on JavaScript-heavy pages (react.dev, an e-commerce SPA). Size the container for `MAX_CONCURRENT_RENDERS` times the per-render figure for your pages: 10 concurrent renders of the e-commerce SPA peaked at 1.4–1.5 GB.
 
 ### Tracking parameters
 

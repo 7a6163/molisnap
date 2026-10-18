@@ -124,3 +124,28 @@ async fn a_page_that_never_signals_ready_fails_instead_of_returning_its_shell() 
 
     assert!(res.is_err(), "got a page: {res:?}");
 }
+
+/// An embed that keeps the network busy, like a chat widget or a video player. Crawlers
+/// want the page, not the frame, so its traffic must not hold up the capture.
+const BUSY_IFRAME: &str = r#"data:text/html,<p>article</p><iframe srcdoc="<script>setInterval(()=>fetch(`https://example.com/?${Math.random()}`).catch(()=>{}),100)</script>"></iframe>"#;
+
+#[tokio::test]
+async fn a_busy_iframe_does_not_hold_up_the_capture() {
+    let Some(bin) = moli_bin() else { return };
+    let opts = Moli {
+        timeout_ms: 8_000,
+        ..moli(bin)
+    };
+
+    let started = std::time::Instant::now();
+    let page = render::render(&opts, BUSY_IFRAME, Format::Markdown)
+        .await
+        .unwrap();
+
+    assert!(String::from_utf8_lossy(&page.body).contains("article"));
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(4),
+        "waited {:?} for the iframe's network to go idle",
+        started.elapsed()
+    );
+}

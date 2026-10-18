@@ -52,6 +52,10 @@ pub async fn render(opts: &Moli, url: &str, format: Format) -> Result<Page, Stri
     };
     cmd.args(["--timeout", &timeout_ms.to_string()])
         .args(["--fail-with-body", "--block-private-networks"])
+        // Embeds (chat widgets, video players, live code editors) aren't content a crawler
+        // reads, and their traffic keeps the network from going idle. Skipping them made
+        // heavy pages ~3x faster with ~1/3 the memory. The <iframe> tags stay in the HTML.
+        .arg("--disable-subframes")
         .args(["--eval", META_STATUS_CHECK]);
     if format == Format::Html {
         // Crawlers get a static snapshot; re-running the SPA's JS on top of it would double-render.

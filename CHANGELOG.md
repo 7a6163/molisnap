@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- Iframes are no longer loaded during a render (`--disable-subframes`). Embeds like chat widgets, video players and live code editors kept the network from going idle and used most of the time and memory on heavy pages: react.dev pages went from 4.3 s and ~550 MB to 1.4 s and ~145 MB per render. The `<iframe>` tags stay in the HTML. Cached pages stay valid, so the cache key is unchanged.
+
 ## [0.2.0] - 2026-10-18
 
 ### Added
