@@ -16,7 +16,7 @@ VALKEY_TEST_URL=redis://127.0.0.1:6390 MOLI_BIN=/path/to/moli cargo test   # ful
 docker compose up --build           # full stack; needs ALLOWED_HOSTS (defaults to example.com)
 ```
 
-Running locally needs a `moli` binary (`MOLI_BIN`); Valkey is optional. Port 6379 on this machine is taken by another project's Valkey, so start a test one on another port: `docker run -d --rm -p 6390:6379 valkey/valkey:8-alpine`. The compose file doesn't publish Valkey's port.
+Running locally needs a `moli` binary (`MOLI_BIN`); Valkey is optional. Port 6379 on this machine is taken by another project's Valkey, so start a test one on another port: `docker run -d --rm -p 6390:6379 valkey/valkey:9-alpine`. The compose file doesn't publish Valkey's port.
 
 ## Tests
 
