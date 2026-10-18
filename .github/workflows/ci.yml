@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keep in sync with MOLI_VERSION in the Dockerfile.
+  MOLI_VERSION: v1.1.17
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Moli
+        run: |
+          curl -fsSL "https://github.com/lexmount/moli/releases/download/${MOLI_VERSION}/moli-x86_64-unknown-linux-gnu.tar.gz" | tar xz -C "$RUNNER_TEMP"
+          echo "MOLI_BIN=$(echo "$RUNNER_TEMP"/moli-*/moli)" >> "$GITHUB_ENV"
+
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+        env:
+          VALKEY_TEST_URL: redis://127.0.0.1:6379

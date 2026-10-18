@@ -4,9 +4,14 @@
 
 use molisnap::{Format, render};
 
+/// Skipped locally when unset, but CI must never skip these silently.
 fn moli_bin() -> Option<String> {
     let bin = std::env::var("MOLI_BIN").ok();
     if bin.is_none() {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "MOLI_BIN must be set in CI"
+        );
         eprintln!("skipped: MOLI_BIN not set");
     }
     bin

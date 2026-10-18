@@ -117,8 +117,13 @@ async fn concurrent_requests_for_one_page_share_a_single_render() {
 }
 
 /// Valkey-backed tests need a real server: `VALKEY_TEST_URL=redis://127.0.0.1:6390 cargo test`.
+/// Skipped locally when unset, but CI must never skip them silently.
 async fn valkey() -> Option<Cache> {
     let Ok(url) = std::env::var("VALKEY_TEST_URL") else {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "VALKEY_TEST_URL must be set in CI"
+        );
         eprintln!("skipped: VALKEY_TEST_URL not set");
         return None;
     };

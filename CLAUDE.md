@@ -27,6 +27,8 @@ Development is test-first (red → green, one slice at a time). Tests sit at thr
 - `tests/moli.rs`: contract tests for `render::render` against a real Moli binary and the network (`MOLI_BIN`).
 - Unit tests in `src/` only for pure helpers (allowlist, URL validation, stderr parsing).
 
+CI (`.github/workflows/ci.yml`) runs fmt, clippy `-D warnings` and the full suite with a Valkey service container and the Linux Moli release. With `CI` set, the Valkey/Moli tests fail instead of skipping when their env var is missing. CI's `MOLI_VERSION` must match the Dockerfile's.
+
 ## Architecture
 
 `src/main.rs` only wires env config into `AppState::new(cfg, Option<Cache>, renderer)`; all logic is in `src/lib.rs`. The renderer is an injected `Renderer` closure (`render::moli` in production). The request path is `serve()`:
