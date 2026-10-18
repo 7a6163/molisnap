@@ -17,6 +17,16 @@ curl "http://localhost:3000/render?url=https://example.com/"
 curl -H 'Accept: text/markdown' "http://localhost:3000/render?url=https://example.com/"
 ```
 
+## Docker image
+
+Multi-arch (amd64, arm64) images are published to GitHub Container Registry:
+
+```sh
+docker pull ghcr.io/7a6163/molisnap:main     # latest commit on main
+docker pull ghcr.io/7a6163/molisnap:latest   # latest release (v* tag)
+docker run -p 3000:3000 -e ALLOWED_HOSTS=example.com ghcr.io/7a6163/molisnap:main
+```
+
 ## API
 
 | Request | Description |

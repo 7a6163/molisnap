@@ -27,7 +27,7 @@ Development is test-first (red → green, one slice at a time). Tests sit at thr
 - `tests/moli.rs`: contract tests for `render::render` against a real Moli binary and the network (`MOLI_BIN`).
 - Unit tests in `src/` only for pure helpers (allowlist, URL validation, stderr parsing).
 
-CI (`.github/workflows/ci.yml`) runs fmt, clippy `-D warnings` and the full suite with a Valkey service container and the Linux Moli release. With `CI` set, the Valkey/Moli tests fail instead of skipping when their env var is missing. CI's `MOLI_VERSION` must match the Dockerfile's.
+CI (`.github/workflows/ci.yml`) runs fmt, clippy `-D warnings` and the full suite with a Valkey service container and the Linux Moli release. With `CI` set, the Valkey/Moli tests fail instead of skipping when their env var is missing. CI's `MOLI_VERSION` must match the Dockerfile's. After `test` passes, CI builds the image on native amd64 and arm64 runners, then `docker-merge` pushes a multi-arch manifest to `ghcr.io/7a6163/molisnap` (tags `main` + `sha-*` from main, `X.Y.Z` / `X.Y` / `latest` from `v*` git tags). PRs build the image but don't push.
 
 ## Architecture
 
