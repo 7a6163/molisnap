@@ -1,0 +1,17 @@
+services:
+  valkey:
+    image: valkey/valkey:8-alpine
+    # Pure cache: bounded memory, evict least-recently-used pages, no persistence.
+    command: valkey-server --maxmemory 512mb --maxmemory-policy allkeys-lru --save "" --appendonly no
+
+  molisnap:
+    build: .
+    image: molisnap
+    depends_on:
+      - valkey
+    environment:
+      VALKEY_URL: redis://valkey:6379
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-example.com}
+      RUST_LOG: info
+    ports:
+      - "3000:3000"
